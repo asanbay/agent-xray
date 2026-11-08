@@ -1,6 +1,6 @@
 {
   "name": "agent-xray",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "X-ray for AI coding agents: see which files they read, which commands they run and where data goes. Blocks the dangerous stuff.",
   "type": "module",
   "bin": { "agent-xray": "dist/cli.js" },

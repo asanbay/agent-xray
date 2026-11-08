@@ -2,11 +2,14 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import os from "node:os";
 import fs from "node:fs";
+import http from "node:http";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { DEFAULT_RULES as R, evaluateFile, evaluateCommand, evaluateHost, globToRegExp, worst } from "./rules.js";
 import { redact } from "./redact.js";
+import { appendEvent, followEvents } from "./store.js";
+import { startDashboard } from "./dashboard.js";
 const CLI = path.join(path.dirname(fileURLToPath(import.meta.url)), "cli.js");
 const HOME = os.homedir();
 const level = (cmd) => {
@@ -127,4 +130,65 @@ test("install / uninstall keeps other hooks intact", () => {
     assert.equal(s.hooks.PreToolUse.length, 1);
     assert.equal(s.hooks.PreToolUse[0].hooks[0].command, "echo other");
     assert.ok(fs.existsSync(f + ".xray-backup"));
+});
+// ---- store: followEvents ----
+test("followEvents tails the log", async () => {
+    const h = fs.mkdtempSync(path.join(os.tmpdir(), "xray-home-"));
+    process.env.AGENT_XRAY_HOME = h;
+    try {
+        appendEvent({ ts: 1, session: "s", tool: "T", kind: "file", op: "read", target: "/x", level: "allow" });
+        const got = [];
+        const stop = followEvents((e) => got.push(e.target));
+        appendEvent({ ts: 2, session: "s", tool: "T", kind: "file", op: "write", target: "/y", level: "allow" });
+        await new Promise((r) => setTimeout(r, 500));
+        stop();
+        assert.deepEqual(got, ["/y"]); // only the event appended after following started
+    }
+    finally {
+        delete process.env.AGENT_XRAY_HOME;
+    }
+});
+// ---- dashboard ----
+function get(url) {
+    return new Promise((resolve, reject) => {
+        http.get(url, (r) => {
+            let b = "";
+            r.on("data", (c) => (b += c));
+            r.on("end", () => resolve({ status: r.statusCode ?? 0, contentType: String(r.headers["content-type"] ?? ""), body: b }));
+        }).on("error", reject);
+    });
+}
+test("dashboard serves the page and the events API", async () => {
+    const h = fs.mkdtempSync(path.join(os.tmpdir(), "xray-dash-"));
+    process.env.AGENT_XRAY_HOME = h;
+    try {
+        appendEvent({ ts: Date.now(), session: "sessA", tool: "Read", kind: "file", op: "read", target: "/tmp/p/.env", level: "warn", reason: "sensitive path (**/.env)" });
+        appendEvent({ ts: Date.now(), session: "sessA", tool: "Read", kind: "file", op: "read", target: `${HOME}/.ssh/id_rsa`, level: "block", reason: "sensitive path (**/.ssh/**)" });
+        const { url, server } = await startDashboard({ open: false });
+        try {
+            const page = await get(url + "/");
+            assert.equal(page.status, 200);
+            assert.ok(page.contentType.includes("text/html"));
+            assert.ok(page.body.includes("agent-xray"));
+            const api = JSON.parse((await get(url + "/api/events")).body);
+            assert.equal(api.events.length, 2);
+            assert.equal(api.report.blocked.length, 1);
+            assert.equal(api.report.warned.length, 1);
+            assert.equal(api.report.grade, "B"); // 100 − 20·1 − 5·1 = 75
+            const scoped = JSON.parse((await get(url + "/api/events?session=sessA")).body);
+            assert.equal(scoped.events.length, 2);
+            const none = JSON.parse((await get(url + "/api/events?session=nope")).body);
+            assert.equal(none.events.length, 0);
+            const sessions = JSON.parse((await get(url + "/api/sessions")).body);
+            assert.equal(sessions.length, 1);
+            assert.equal(sessions[0].session, "sessA");
+            assert.equal(sessions[0].count, 2);
+        }
+        finally {
+            server.close();
+        }
+    }
+    finally {
+        delete process.env.AGENT_XRAY_HOME;
+    }
 });

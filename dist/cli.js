@@ -1,9 +1,11 @@
 #!/usr/bin/env node
 import fs from "node:fs";
+import { spawn } from "node:child_process";
 import { runHook } from "./hook.js";
 import { install, uninstall } from "./install.js";
 import { demo } from "./demo.js";
-import { readEvents } from "./store.js";
+import { readEvents, followEvents } from "./store.js";
+import { startDashboard } from "./dashboard.js";
 import { buildReport, printReport } from "./report.js";
 import { bold, dim, formatEvent, sessionHeader } from "./render.js";
 import { customRulesPath, eventsPath } from "./paths.js";
@@ -14,9 +16,10 @@ Usage:
   agent-xray install [--project]     add the guard hook to Claude Code (user-level, or ./.claude/settings.local.json)
   agent-xray uninstall [--project]   remove it again
   agent-xray watch                   live feed of what the agent touches (run in a second terminal)
+  agent-xray dashboard [--port N]    web dashboard on localhost (default port 8787)
   agent-xray report [--all]          summary + risk grade for the last session (or everything)
   agent-xray rules                   show where to customise rules
-  agent-xray demo                    simulated session, handy for recording a GIF
+  agent-xray demo [--log]            simulated session; --log also writes it to the event log
 
 Levels:  ✔ ok = allowed   ⚠ WARN = Claude Code asks you first   ✖ BLOCK = denied
 Log:     ${eventsPath()}`;
@@ -31,40 +34,22 @@ function watch() {
         }
         console.log(formatEvent(e));
     };
-    let offset = 0;
-    if (fs.existsSync(file)) {
-        readEvents().slice(-15).forEach(print);
-        offset = fs.statSync(file).size;
+    readEvents().slice(-15).forEach(print);
+    followEvents(print);
+}
+function openBrowser(url) {
+    try {
+        if (process.platform === "darwin")
+            spawn("open", [url], { detached: true, stdio: "ignore" }).unref();
+        else if (process.platform !== "win32")
+            spawn("xdg-open", [url], { detached: true, stdio: "ignore" }).unref();
     }
-    let buf = "";
-    setInterval(() => {
-        try {
-            if (!fs.existsSync(file))
-                return;
-            const size = fs.statSync(file).size;
-            if (size < offset)
-                offset = 0; // log was cleared
-            if (size === offset)
-                return;
-            const fd = fs.openSync(file, "r");
-            const chunk = Buffer.alloc(size - offset);
-            fs.readSync(fd, chunk, 0, chunk.length, offset);
-            fs.closeSync(fd);
-            offset = size;
-            buf += chunk.toString("utf8");
-            const lines = buf.split("\n");
-            buf = lines.pop() ?? "";
-            for (const l of lines) {
-                if (!l.trim())
-                    continue;
-                try {
-                    print(JSON.parse(l));
-                }
-                catch { /* ignore torn line */ }
-            }
-        }
-        catch { /* keep watching */ }
-    }, 200);
+    catch { /* the user can open the URL manually */ }
+}
+async function dashboard(port) {
+    const { url } = await startDashboard({ port });
+    openBrowser(url);
+    console.log(bold("agent-xray") + dim(`  dashboard → ${url}   (Ctrl+C to exit)`));
 }
 function report(all) {
     const events = readEvents();
@@ -84,6 +69,11 @@ function rules() {
         command: { warn: [{ pattern: "\\\\bterraform\\\\s+apply\\\\b", reason: "infra change" }] },
     }, null, 2));
 }
+function parsePort(args) {
+    const i = args.indexOf("--port");
+    const v = i >= 0 ? Number(args[i + 1]) : NaN;
+    return Number.isInteger(v) && v > 0 && v < 65536 ? v : 8787;
+}
 process.stdout.on("error", (e) => { if (e.code === "EPIPE")
     process.exit(0); });
 const [, , cmd, ...args] = process.argv;
@@ -101,6 +91,9 @@ switch (cmd) {
     case "watch":
         watch();
         break;
+    case "dashboard":
+        await dashboard(parsePort(args));
+        break;
     case "report":
         report(flag("--all"));
         break;
@@ -108,7 +101,7 @@ switch (cmd) {
         rules();
         break;
     case "demo":
-        await demo();
+        await demo(flag("--log"));
         break;
     default:
         console.log(HELP);

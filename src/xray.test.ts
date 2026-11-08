@@ -419,3 +419,70 @@ test("sweep: system daemons and orphans are recognised", () => {
   assert.match("/usr/libexec/rapportd", SYSTEM_DAEMON_RE);
   assert.doesNotMatch("/Users/x/.gemini/antigravity/scratch/server.py", SYSTEM_DAEMON_RE);
 });
+
+// ---- audit: secrets, scoring ----
+import { scanSecrets, maskSecret, scoreAudit, hookCoverage, type SecretFinding } from "./audit.js";
+import type { Finding } from "./sweep.js";
+
+test("audit: secrets scanner finds and masks", () => {
+  const text = [
+    '{ "api_key": "sk-proj1234567890abcdefghijklmnop",',
+    '  "aws": "AKIAABCDEFGHIJKLMNOP",',
+    '  "gh": "ghp_abcdefghijklmnopqrstuvwxyz012345",',
+    '  "google": "AIzaAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",',
+    '  "-----BEGIN RSA PRIVATE KEY-----"',
+    '}'].join("\n");
+  const hits = scanSecrets(text);
+  const types = hits.map((h) => h.type);
+  assert.ok(types.includes("OpenAI-style API key"));
+  assert.ok(types.includes("AWS access key"));
+  assert.ok(types.includes("GitHub token"));
+  assert.ok(types.includes("Google API key"));
+  assert.ok(types.includes("private key block"));
+  // masked: full values never returned
+  for (const h of hits) {
+    assert.ok(h.masked.endsWith("…***"));
+    assert.ok(h.masked.length <= 10);
+  }
+  const raw = JSON.stringify(hits);
+  assert.ok(!raw.includes("sk-proj1234567890abcdefghijklmnop"));
+  assert.ok(!raw.includes("AKIAABCDEFGHIJKLMNOP"));
+});
+
+test("audit: clean text has no hits, mask is stable", () => {
+  assert.deepEqual(scanSecrets('{"mode":"guard","hooks":{}}'), []);
+  assert.equal(maskSecret("AKIA1234567890ABCDEF"), "AKIA12…***");
+});
+
+test("audit: score math", () => {
+  const base = {
+    date: "2026-11-08T00:00:00Z", host: "test", mode: "observe", sealOk: true,
+    coverage: [
+      { name: "Claude Code", installed: true, supported: true, covered: false },
+      { name: "ZCode", installed: true, supported: true, covered: true },
+      { name: "Codex CLI", installed: true, supported: false, covered: false },
+    ],
+    sweep: [
+      { area: "port", severity: "hot", agent: "X", detail: "d" },
+      { area: "disk", severity: "warn", agent: "Y", detail: "d" },
+    ] as Finding[],
+    secrets: [
+      { type: "GitHub token", masked: "ghp_ab…***", line: 1, file: "/x", expected: false },
+      { type: "OAuth token", masked: "xxxxx…***", line: 1, file: "auth.json", expected: true },
+    ] as SecretFinding[],
+  };
+  const r = scoreAudit(base);
+  // 100 − 15 (hot) − 5 (warn) − 15 (plaintext secret) − 3 (credential file) − 10 (uncovered claude) − 5 (observe) = 47 → D
+  assert.equal(r.score, 47);
+  assert.equal(r.grade, "D");
+  // and a perfect machine
+  const perfect = scoreAudit({ ...base, mode: "guard", sweep: [], secrets: [], coverage: base.coverage.map((c) => ({ ...c, covered: true })) });
+  assert.equal(perfect.score, 100);
+  assert.equal(perfect.grade, "A+");
+});
+
+test("audit: coverage reads real agents registry", () => {
+  const cov = hookCoverage();
+  assert.ok(cov.length >= 6);
+  for (const c of cov) assert.equal(typeof c.covered, "boolean");
+});

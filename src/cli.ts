@@ -8,6 +8,7 @@ import { readEvents, followEvents } from "./store.js";
 import { startDashboard } from "./dashboard.js";
 import { buildReport, printReport } from "./report.js";
 import { sweep, printSweep } from "./sweep.js";
+import { runAudit, printAudit, writeAuditReport } from "./audit.js";
 import { bold, dim, formatEvent, sessionHeader } from "./render.js";
 import { customRulesPath, eventsPath, configPath } from "./paths.js";
 import { DEFAULT_RULES } from "./rules.js";
@@ -30,6 +31,8 @@ Usage:
   agent-xray rules                   show where to customise rules
   agent-xray sweep [--json]          find AI-agent leftovers: orphan processes, open ports,
                                      autostart entries, disk hogs (reports, never kills)
+  agent-xray audit                   full AI-safety audit: score, secrets in agent configs,
+                                     coverage, parasites → HTML report in ~/.agent-xray/audit
   agent-xray demo [--log]            simulated session; --log also writes it to the event log
 
 Modes:   observe = log everything, block nothing (default)   guard = warn→ask, block→deny
@@ -135,6 +138,15 @@ switch (cmd) {
     const findings = sweep();
     if (flag("--json")) console.log(JSON.stringify(findings, null, 2));
     else printSweep(findings);
+    break;
+  }
+  case "audit": {
+    const result = runAudit();
+    printAudit(result);
+    const file = writeAuditReport(result);
+    if (!flag("--no-open") && process.platform === "darwin") {
+      try { spawn("open", [file], { detached: true, stdio: "ignore" }).unref(); } catch { /* open manually */ }
+    }
     break;
   }
   case "rules": rules(); break;

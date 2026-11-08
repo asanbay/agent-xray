@@ -45,6 +45,9 @@ const PAGE = `<!doctype html>
   .tip { position:absolute; pointer-events:none; background:#131a23ee; border:1px solid #223041; border-radius:8px; padding:8px 10px; font-size:12px; max-width:420px; word-break:break-all; display:none; z-index:5; }
   .tip b { color:#e8edf4; } .tip small { color:#8b98a9; }
   .hint { position:absolute; right:12px; bottom:10px; color:#3d4a5c; font-size:11px; }
+  .legend { position:absolute; left:12px; bottom:10px; color:#8b98a9; font-size:11px; }
+  .legend i { font-style:normal; }
+  .legend b { font-weight:400; color:#5c6b7f; }
   footer { margin-top:12px; color:#5c6b7f; font-size:12px; }
 </style>
 </head>
@@ -66,6 +69,7 @@ const PAGE = `<!doctype html>
 <div class="stage" id="stage" style="display:none">
   <canvas id="cv"></canvas>
   <div class="tip" id="tip"></div>
+  <div class="legend"><i class="ok">●</i> ok &nbsp;<i class="warn">●</i> warn &nbsp;<i class="block">●</i> blocked &nbsp;<b>· shells: worse = closer to the agent · sectors: files / commands / network</b></div>
   <div class="hint">drag to rotate · scroll to zoom</div>
 </div>
 <div class="feed" id="feed"><div class="empty">loading…</div></div>
@@ -159,20 +163,29 @@ function resetUniverse() {
 function nodeKey(e) { return e.kind + "|" + e.target; }
 
 function layoutUniverse() {
-  const keys = [...uni.nodes.keys()];
-  const N = keys.length;
-  const ga = Math.PI * (3 - Math.sqrt(5));
+  // Systematic layout: three kind-wedges around the agent (files left, commands
+  // right, network behind); inside a wedge, severity decides the shell radius —
+  // blocked actions orbit closest to the agent, allowed ones on the rim.
+  const groups = { file: [], command: [], network: [] };
+  for (const n of uni.nodes.values()) (groups[n.kind] || groups.file).push(n);
   const R = 300;
-  keys.forEach((key, i) => {
-    const n = uni.nodes.get(key);
-    const y = 1 - (2 * (i + 0.5)) / N;                 // fibonacci sphere
-    const r = Math.sqrt(Math.max(0, 1 - y * y));
-    const th = ga * i;
-    const ring = n.kind === "network" ? 1.18 : n.kind === "command" ? 1.0 : 0.86;
-    n.x = R * ring * r * Math.cos(th);
-    n.y = R * ring * y * 0.72;
-    n.z = R * ring * r * Math.sin(th);
-  });
+  const shell = { block: 0.55, warn: 0.82, allow: 1.1 };
+  const kindK = { file: 1.0, command: 1.08, network: 1.18 };
+  const wedge = { file: [-0.888, -0.333], command: [-0.222, 0.333], network: [0.444, 1.0] }; // × π
+  const order = { block: 0, warn: 1, allow: 2 };
+  for (const kind of ["file", "command", "network"]) {
+    const list = groups[kind].sort((a, b) =>
+      order[a.level] - order[b.level] || (a.target < b.target ? -1 : 1));
+    const [t0, t1] = wedge[kind];
+    const N = list.length;
+    list.forEach((n, i) => {
+      const th = Math.PI * (t0 + (t1 - t0) * ((i + 0.5) / Math.max(1, N)));
+      const r = R * kindK[kind] * shell[n.level];
+      n.x = r * Math.cos(th);
+      n.z = r * Math.sin(th);
+      n.y = Math.sin(i * 2.399) * (55 + 45 * shell[n.level]); // golden-angle zigzag
+    });
+  }
 }
 
 function feedUniverse(events) {
@@ -233,16 +246,18 @@ function drawUniverse(now) {
   }
   items.sort((a, b) => a.p.z - b.p.z);
 
-  // orbit ring for depth cue
-  ctx.strokeStyle = "rgba(122,162,247,0.08)";
+  // orbit rings at the severity shells for a depth cue
+  ctx.strokeStyle = "rgba(122,162,247,0.07)";
   ctx.lineWidth = 1;
-  ctx.beginPath();
-  for (let a = 0; a <= 64; a++) {
-    const t = (a / 64) * Math.PI * 2;
-    const q = project(300 * Math.cos(t), 0, 300 * Math.sin(t), w, h);
-    if (a === 0) ctx.moveTo(q.x, q.y); else ctx.lineTo(q.x, q.y);
+  for (const shell of [0.55, 0.82, 1.1]) {
+    ctx.beginPath();
+    for (let a = 0; a <= 64; a++) {
+      const t = (a / 64) * Math.PI * 2;
+      const q = project(330 * shell * Math.cos(t), 0, 330 * shell * Math.sin(t), w, h);
+      if (a === 0) ctx.moveTo(q.x, q.y); else ctx.lineTo(q.x, q.y);
+    }
+    ctx.stroke();
   }
-  ctx.stroke();
 
   // pulses under nodes
   uni.pulses = uni.pulses.filter((pu) => {

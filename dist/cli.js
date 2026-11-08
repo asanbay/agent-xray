@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 import fs from "node:fs";
 import { spawn } from "node:child_process";
-import { runHook } from "./hook.js";
-import { install, uninstall } from "./install.js";
+import { runHook, runCursorHook } from "./hook.js";
+import { install, uninstall, listAgents } from "./install.js";
 import { demo } from "./demo.js";
 import { readEvents, followEvents } from "./store.js";
 import { startDashboard } from "./dashboard.js";
@@ -13,16 +13,32 @@ import { DEFAULT_RULES } from "./rules.js";
 const HELP = `${bold("agent-xray")} — X-ray for AI coding agents
 
 Usage:
-  agent-xray install [--project]     add the guard hook to Claude Code (user-level, or ./.claude/settings.local.json)
-  agent-xray uninstall [--project]   remove it again
-  agent-xray watch                   live feed of what the agent touches (run in a second terminal)
+  agent-xray agents                  show agents on this machine and support status
+  agent-xray install [agent]         add the guard hook (default: every supported agent found);
+                                     agent = claude | zcode | cursor | project
+  agent-xray uninstall [agent]       remove our hooks again
+  agent-xray watch                   live feed of what the agents touch (run in a second terminal)
   agent-xray dashboard [--port N]    web dashboard on localhost (default port 8787)
   agent-xray report [--all]          summary + risk grade for the last session (or everything)
   agent-xray rules                   show where to customise rules
   agent-xray demo [--log]            simulated session; --log also writes it to the event log
 
-Levels:  ✔ ok = allowed   ⚠ WARN = Claude Code asks you first   ✖ BLOCK = denied
+Levels:  ✔ ok = allowed   ⚠ WARN = the agent asks you first   ✖ BLOCK = denied
 Log:     ${eventsPath()}`;
+function agentsList() {
+    console.log(bold("Agents on this machine"));
+    for (const a of listAgents()) {
+        const mark = !a.installed ? dim("– not installed")
+            : a.schema === "none" ? dim("… detected, no hook API yet")
+                : a.schema === "cursor" ? "✔ supported (beta)"
+                    : "✔ supported";
+        console.log(`  ${a.name.padEnd(14)} ${mark}`);
+        if (a.installed)
+            console.log(dim(`     ${a.note}`));
+    }
+    console.log(dim("\ninstall:  agent-xray install          (all supported, detected automatically)"));
+    console.log(dim("single:   agent-xray install zcode   |  claude  |  cursor  |  project"));
+}
 function watch() {
     const file = eventsPath();
     console.log(bold("agent-xray") + dim(`  watching ${file}   (Ctrl+C to exit)`));
@@ -82,11 +98,17 @@ switch (cmd) {
     case "hook":
         await runHook();
         break;
+    case "cursor-hook":
+        await runCursorHook();
+        break;
+    case "agents":
+        agentsList();
+        break;
     case "install":
-        install(flag("--project"));
+        install(args.find((a) => !a.startsWith("--")) ?? "auto", flag("--project"));
         break;
     case "uninstall":
-        uninstall(flag("--project"));
+        uninstall(args.find((a) => !a.startsWith("--")) ?? "auto", flag("--project"));
         break;
     case "watch":
         watch();

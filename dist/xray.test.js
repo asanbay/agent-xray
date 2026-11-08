@@ -10,6 +10,8 @@ import { DEFAULT_RULES as R, evaluateFile, evaluateCommand, evaluateHost, globTo
 import { redact } from "./redact.js";
 import { appendEvent, followEvents } from "./store.js";
 import { startDashboard } from "./dashboard.js";
+import { upsertZcodeHook, stripZcodeHook, upsertCursorHooks, stripCursorHooks, MATCHER } from "./install.js";
+import { listAgents } from "./agents.js";
 const CLI = path.join(path.dirname(fileURLToPath(import.meta.url)), "cli.js");
 const HOME = os.homedir();
 const level = (cmd) => {
@@ -190,5 +192,77 @@ test("dashboard serves the page and the events API", async () => {
     }
     finally {
         delete process.env.AGENT_XRAY_HOME;
+    }
+});
+// ---- multi-agent install: zcode schema ----
+test("zcode config: upsert enables hooks, strip restores", () => {
+    const f = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "xray-zc-")), "config.json");
+    fs.writeFileSync(f, JSON.stringify({ plugins: { enabledPlugins: { "a@b": true } } }));
+    upsertZcodeHook(f, `"node" "cli.js" hook --xray`);
+    const s = JSON.parse(fs.readFileSync(f, "utf8"));
+    assert.equal(s.plugins.enabledPlugins["a@b"], true); // untouched
+    assert.equal(s.hooks.enabled, true); // runner switched on
+    const group = s.hooks.events.PreToolUse[0];
+    assert.equal(group.matcher, MATCHER);
+    assert.match(group.hooks[0].command, /--xray/);
+    assert.ok(fs.existsSync(f + ".xray-backup"));
+    assert.equal(stripZcodeHook(f), 1);
+    const after = JSON.parse(fs.readFileSync(f, "utf8"));
+    assert.equal(after.hooks, undefined); // fully cleaned up
+    assert.equal(after.plugins.enabledPlugins["a@b"], true);
+});
+// ---- multi-agent install: cursor schema ----
+test("cursor hooks.json: upsert both events, strip cleans up", () => {
+    const f = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "xray-cu-")), "hooks.json");
+    upsertCursorHooks(f, [
+        { event: "beforeShellExecution", command: `"node" "cli.js" cursor-hook --xray` },
+        { event: "beforeReadFile", command: `"node" "cli.js" cursor-hook --xray` },
+    ]);
+    const s = JSON.parse(fs.readFileSync(f, "utf8"));
+    assert.equal(s.version, 1);
+    assert.equal(s.hooks.beforeShellExecution.length, 1);
+    assert.equal(s.hooks.beforeReadFile.length, 1);
+    upsertCursorHooks(f, [{ event: "beforeShellExecution", command: `"node" "cli.js" cursor-hook --xray` }]); // idempotent
+    const s2 = JSON.parse(fs.readFileSync(f, "utf8"));
+    assert.equal(s2.hooks.beforeShellExecution.length, 1);
+    assert.equal(s2.hooks.beforeReadFile, undefined); // already stripped by the second upsert
+    assert.equal(stripCursorHooks(f), 1);
+    const s3 = JSON.parse(fs.readFileSync(f, "utf8"));
+    assert.deepEqual(s3.hooks, {});
+});
+// ---- cursor hook adapter (end-to-end) ----
+function runCursor(stdin, xrayHome) {
+    return spawnSync(process.execPath, [CLI, "cursor-hook"], {
+        input: stdin, encoding: "utf8", env: { ...process.env, AGENT_XRAY_HOME: xrayHome },
+    });
+}
+test("cursor-hook: denies ssh key read, contents never logged", () => {
+    const h = fs.mkdtempSync(path.join(os.tmpdir(), "xray-home-"));
+    const r = runCursor(JSON.stringify({
+        hook_event_name: "beforeReadFile", conversation_id: "cur1",
+        file_path: `${HOME}/.ssh/id_rsa`, content: "SUPERSECRETPRIVATEKEY123",
+    }), h);
+    assert.equal(r.status, 0);
+    const out = JSON.parse(r.stdout);
+    assert.equal(out.permission, "deny");
+    const log = fs.readFileSync(path.join(h, "events.jsonl"), "utf8");
+    assert.ok(!log.includes("SUPERSECRETPRIVATEKEY123")); // contents stay out of the log
+    assert.ok(log.includes("id_rsa"));
+});
+test("cursor-hook: asks on .env command, silent on allow", () => {
+    const h = fs.mkdtempSync(path.join(os.tmpdir(), "xray-home-"));
+    const ask = runCursor(JSON.stringify({ hook_event_name: "beforeShellExecution", command: "cat .env", cwd: "/tmp/p" }), h);
+    assert.equal(JSON.parse(ask.stdout).permission, "ask");
+    const ok = runCursor(JSON.stringify({ hook_event_name: "beforeShellExecution", command: "ls -la", cwd: "/tmp/p" }), h);
+    assert.equal(ok.stdout, "");
+});
+// ---- agent detection ----
+test("agents: registry is well-formed", () => {
+    const list = listAgents();
+    assert.ok(list.length >= 6);
+    for (const a of list) {
+        assert.ok(a.id && a.name);
+        assert.ok(["claude", "zcode", "cursor", "none"].includes(a.schema));
+        assert.equal(typeof a.installed, "boolean");
     }
 });

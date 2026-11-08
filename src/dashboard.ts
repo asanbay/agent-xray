@@ -3,6 +3,7 @@ import type { XrayEvent } from "./types.js";
 import { readEvents, followEvents } from "./store.js";
 import { buildReport } from "./report.js";
 import { eventsPath } from "./paths.js";
+import { loadConfig } from "./config.js";
 
 const PAGE = `<!doctype html>
 <html lang="en">
@@ -20,6 +21,8 @@ const PAGE = `<!doctype html>
   .live { display:inline-flex; align-items:center; gap:6px; color:#8b98a9; font-size:12px; }
   .live i { width:8px; height:8px; border-radius:50%; background:#4ade80; animation:pulse 1.6s infinite; }
   @keyframes pulse { 50% { opacity:.25; } }
+  .mode { border:1px solid #223041; border-radius:999px; padding:2px 10px; font-size:11px; color:#8b98a9; }
+  .mode.guard { color:#f87171; border-color:#7f1d1d; background:#2a1215; }
   select { background:#131a23; color:#d7dde6; border:1px solid #223041; border-radius:6px; padding:5px 8px; font:inherit; max-width:340px; }
   .cards { display:grid; grid-template-columns:repeat(auto-fit,minmax(118px,1fr)); gap:10px; margin-bottom:14px; }
   .card { background:#111823; border:1px solid #1d2836; border-radius:10px; padding:11px 14px; }
@@ -55,6 +58,7 @@ const PAGE = `<!doctype html>
 <header>
   <h1>agent<span>-xray</span></h1>
   <span class="live"><i></i>live</span>
+  <span class="mode" id="mode">mode: …</span>
   <select id="session"></select>
 </header>
 <div class="cards" id="cards"></div>
@@ -128,6 +132,11 @@ async function load() {
   state.report = data.report;
   render(state.events, state.report);
   feedUniverse(state.events);
+  fetch("/api/mode").then((x) => x.json()).then((m) => {
+    const el = $("mode");
+    el.textContent = "mode: " + m.mode + (m.mode === "guard" ? " 🔒" : " 👁");
+    el.className = "mode" + (m.mode === "guard" ? " guard" : "");
+  }).catch(() => {});
   await loadSessions();
 }
 
@@ -423,6 +432,10 @@ function route(req: http.IncomingMessage, res: http.ServerResponse): void {
   }
   if (u.pathname === "/api/sessions") {
     json(res, sessionSummary(readEvents()));
+    return;
+  }
+  if (u.pathname === "/api/mode") {
+    json(res, loadConfig());
     return;
   }
   if (u.pathname === "/api/events") {

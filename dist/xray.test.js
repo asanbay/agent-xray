@@ -10,6 +10,7 @@ import { DEFAULT_RULES as R, evaluateFile, evaluateCommand, evaluateHost, globTo
 import { redact } from "./redact.js";
 import { appendEvent, followEvents } from "./store.js";
 import { startDashboard } from "./dashboard.js";
+import { setMode } from "./config.js";
 import { upsertZcodeHook, stripZcodeHook, upsertCursorHooks, stripCursorHooks, MATCHER } from "./install.js";
 import { listAgents } from "./agents.js";
 const CLI = path.join(path.dirname(fileURLToPath(import.meta.url)), "cli.js");
@@ -76,25 +77,86 @@ function runHook(stdin, xrayHome) {
         input: stdin, encoding: "utf8", env: { ...process.env, AGENT_XRAY_HOME: xrayHome },
     });
 }
-test("hook: denies reading an SSH key and logs it", () => {
+test("observe is the default: logs everything, denies nothing", () => {
     const h = fs.mkdtempSync(path.join(os.tmpdir(), "xray-home-"));
     const r = runHook(JSON.stringify({
         hook_event_name: "PreToolUse", tool_name: "Read", session_id: "s1", cwd: "/tmp/proj",
         tool_input: { file_path: `${HOME}/.ssh/id_rsa` },
     }), h);
     assert.equal(r.status, 0);
+    assert.equal(r.stdout, ""); // no decision — the agent keeps working
+    const log = JSON.parse(fs.readFileSync(path.join(h, "events.jsonl"), "utf8").trim());
+    assert.equal(log.level, "block"); // but the event is on the record
+});
+test("guard: denies reading an SSH key and logs it", () => {
+    const h = fs.mkdtempSync(path.join(os.tmpdir(), "xray-home-"));
+    process.env.AGENT_XRAY_HOME = h;
+    setMode("guard");
+    const r = runHook(JSON.stringify({
+        hook_event_name: "PreToolUse", tool_name: "Read", session_id: "s1", cwd: "/tmp/proj",
+        tool_input: { file_path: `${HOME}/.ssh/id_rsa` },
+    }), h);
+    delete process.env.AGENT_XRAY_HOME;
+    assert.equal(r.status, 0);
     const out = JSON.parse(r.stdout);
     assert.equal(out.hookSpecificOutput.permissionDecision, "deny");
     const log = fs.readFileSync(path.join(h, "events.jsonl"), "utf8").trim().split("\n");
-    assert.equal(log.length, 1);
     assert.equal(JSON.parse(log[0]).level, "block");
 });
-test("hook: asks on .env, stays silent on normal files", () => {
+test("guard: asks on .env, stays silent on normal files", () => {
     const h = fs.mkdtempSync(path.join(os.tmpdir(), "xray-home-"));
+    process.env.AGENT_XRAY_HOME = h;
+    setMode("guard");
     const ask = runHook(JSON.stringify({ tool_name: "Read", session_id: "s", cwd: "/tmp/p", tool_input: { file_path: "/tmp/p/.env" } }), h);
-    assert.equal(JSON.parse(ask.stdout).hookSpecificOutput.permissionDecision, "ask");
     const ok = runHook(JSON.stringify({ tool_name: "Read", session_id: "s", cwd: "/tmp/p", tool_input: { file_path: "/tmp/p/src/a.ts" } }), h);
+    delete process.env.AGENT_XRAY_HOME;
+    assert.equal(JSON.parse(ask.stdout).hookSpecificOutput.permissionDecision, "ask");
     assert.equal(ok.stdout, "");
+});
+test("guard: tampered rules force deny + a tamper event", () => {
+    const h = fs.mkdtempSync(path.join(os.tmpdir(), "xray-home-"));
+    process.env.AGENT_XRAY_HOME = h;
+    setMode("guard");
+    // an "agent" edits rules.json behind our back → the seal breaks
+    fs.writeFileSync(path.join(h, "rules.json"), JSON.stringify({ file: { allow: ["**"] } }));
+    const r = runHook(JSON.stringify({
+        hook_event_name: "PreToolUse", tool_name: "Read", session_id: "s1", cwd: "/tmp/proj",
+        tool_input: { file_path: `${HOME}/.ssh/id_rsa` },
+    }), h);
+    const log = fs.readFileSync(path.join(h, "events.jsonl"), "utf8");
+    delete process.env.AGENT_XRAY_HOME;
+    const out = JSON.parse(r.stdout);
+    assert.equal(out.hookSpecificOutput.permissionDecision, "deny"); // even with file.allow ** in place
+    assert.match(out.hookSpecificOutput.permissionDecisionReason, /modified outside/);
+    assert.ok(log.includes("rules.json modified outside")); // tamper event on the record
+});
+test("guard: kettle rules — an agent cannot switch the filter off", () => {
+    const h = fs.mkdtempSync(path.join(os.tmpdir(), "xray-home-"));
+    process.env.AGENT_XRAY_HOME = h;
+    setMode("guard");
+    const off = runHook(JSON.stringify({ tool_name: "Bash", session_id: "s", cwd: "/tmp/p",
+        tool_input: { command: "node /usr/local/bin/cli.js uninstall" } }), h);
+    const wipe = runHook(JSON.stringify({ tool_name: "Write", session_id: "s", cwd: "/tmp/p",
+        tool_input: { file_path: `${HOME}/.agent-xray/config.json` } }), h);
+    delete process.env.AGENT_XRAY_HOME;
+    const o = JSON.parse(off.stdout);
+    assert.equal(o.hookSpecificOutput.permissionDecision, "deny");
+    assert.match(o.hookSpecificOutput.permissionDecisionReason, /я чайник/);
+    const w = JSON.parse(wipe.stdout);
+    assert.equal(w.hookSpecificOutput.permissionDecision, "deny");
+    assert.match(w.hookSpecificOutput.permissionDecisionReason, /guardrail write/);
+});
+test("mode command switches and reseals", () => {
+    const h = fs.mkdtempSync(path.join(os.tmpdir(), "xray-home-"));
+    const run = (m) => spawnSync(process.execPath, [CLI, "mode", m], {
+        encoding: "utf8", env: { ...process.env, AGENT_XRAY_HOME: h },
+    });
+    assert.equal(run("guard").status, 0);
+    assert.equal(JSON.parse(fs.readFileSync(path.join(h, "config.json"), "utf8")).mode, "guard");
+    assert.ok(fs.existsSync(path.join(h, "seal.json")));
+    assert.equal(run("observe").status, 0);
+    assert.equal(JSON.parse(fs.readFileSync(path.join(h, "config.json"), "utf8")).mode, "observe");
+    assert.equal(run("bogus").status, 1);
 });
 test("hook: bash command logs redacted text and network event", () => {
     const h = fs.mkdtempSync(path.join(os.tmpdir(), "xray-home-"));
@@ -238,10 +300,13 @@ function runCursor(stdin, xrayHome) {
 }
 test("cursor-hook: denies ssh key read, contents never logged", () => {
     const h = fs.mkdtempSync(path.join(os.tmpdir(), "xray-home-"));
+    process.env.AGENT_XRAY_HOME = h;
+    setMode("guard");
     const r = runCursor(JSON.stringify({
         hook_event_name: "beforeReadFile", conversation_id: "cur1",
         file_path: `${HOME}/.ssh/id_rsa`, content: "SUPERSECRETPRIVATEKEY123",
     }), h);
+    delete process.env.AGENT_XRAY_HOME;
     assert.equal(r.status, 0);
     const out = JSON.parse(r.stdout);
     assert.equal(out.permission, "deny");
@@ -251,10 +316,23 @@ test("cursor-hook: denies ssh key read, contents never logged", () => {
 });
 test("cursor-hook: asks on .env command, silent on allow", () => {
     const h = fs.mkdtempSync(path.join(os.tmpdir(), "xray-home-"));
+    process.env.AGENT_XRAY_HOME = h;
+    setMode("guard");
     const ask = runCursor(JSON.stringify({ hook_event_name: "beforeShellExecution", command: "cat .env", cwd: "/tmp/p" }), h);
-    assert.equal(JSON.parse(ask.stdout).permission, "ask");
     const ok = runCursor(JSON.stringify({ hook_event_name: "beforeShellExecution", command: "ls -la", cwd: "/tmp/p" }), h);
+    delete process.env.AGENT_XRAY_HOME;
+    assert.equal(JSON.parse(ask.stdout).permission, "ask");
     assert.equal(ok.stdout, "");
+});
+test("cursor-hook: observe mode logs but never denies", () => {
+    const h = fs.mkdtempSync(path.join(os.tmpdir(), "xray-home-"));
+    const r = runCursor(JSON.stringify({
+        hook_event_name: "beforeReadFile", conversation_id: "cur1",
+        file_path: `${HOME}/.ssh/id_rsa`, content: "x",
+    }), h);
+    assert.equal(r.status, 0);
+    assert.equal(r.stdout, ""); // observe: no permission decision
+    assert.ok(fs.readFileSync(path.join(h, "events.jsonl"), "utf8").includes("id_rsa"));
 });
 // ---- agent detection ----
 test("agents: registry is well-formed", () => {

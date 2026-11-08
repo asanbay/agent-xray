@@ -10,6 +10,8 @@ export const xrayHome = (): string =>
 export const eventsPath = (): string => path.join(xrayHome(), "events.jsonl");
 export const errorsPath = (): string => path.join(xrayHome(), "errors.log");
 export const customRulesPath = (): string => path.join(xrayHome(), "rules.json");
+export const configPath = (): string => path.join(xrayHome(), "config.json");
+export const sealPath = (): string => path.join(xrayHome(), "seal.json");
 
 /** Replace the home directory with ~ for display. */
 export function shortPath(p: string): string {

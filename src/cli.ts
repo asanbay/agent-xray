@@ -8,16 +8,20 @@ import { readEvents, followEvents } from "./store.js";
 import { startDashboard } from "./dashboard.js";
 import { buildReport, printReport } from "./report.js";
 import { bold, dim, formatEvent, sessionHeader } from "./render.js";
-import { customRulesPath, eventsPath } from "./paths.js";
+import { customRulesPath, eventsPath, configPath } from "./paths.js";
 import { DEFAULT_RULES } from "./rules.js";
+import { loadConfig, setMode, seal, type Mode } from "./config.js";
 import type { XrayEvent } from "./types.js";
 
 const HELP = `${bold("agent-xray")} — X-ray for AI coding agents
 
 Usage:
   agent-xray agents                  show agents on this machine and support status
-  agent-xray install [agent]         add the guard hook (default: every supported agent found);
+  agent-xray install [agent] [--guard]   add the hook (default mode: observe — log only);
+                                     --guard starts in guard mode (warn→ask, block→deny);
                                      agent = claude | zcode | cursor | project
+  agent-xray mode <observe|guard>    switch mode (run this yourself, not via the agent);
+                                     reseals config, tampering is flagged
   agent-xray uninstall [agent]       remove our hooks again
   agent-xray watch                   live feed of what the agents touch (run in a second terminal)
   agent-xray dashboard [--port N]    web dashboard on localhost (default port 8787)
@@ -25,8 +29,20 @@ Usage:
   agent-xray rules                   show where to customise rules
   agent-xray demo [--log]            simulated session; --log also writes it to the event log
 
+Modes:   observe = log everything, block nothing (default)   guard = warn→ask, block→deny
 Levels:  ✔ ok = allowed   ⚠ WARN = the agent asks you first   ✖ BLOCK = denied
-Log:     ${eventsPath()}`;
+Log:     ${eventsPath()}
+Config:  ${configPath()}`;
+
+function modeCmd(m: unknown): void {
+  if (m !== "observe" && m !== "guard") {
+    console.log(`Usage: agent-xray mode <observe|guard>   (current: ${loadConfig().mode})`);
+    process.exit(1);
+  }
+  setMode(m as Mode);
+  console.log(`✔ mode: ${m}   (${m === "guard" ? "warn→ask, block→deny" : "log only, nothing is denied"})`);
+  console.log(dim("config + rules resealed — manual edits will now be flagged as tampering"));
+}
 
 function agentsList(): void {
   console.log(bold("Agents on this machine"));
@@ -102,7 +118,12 @@ switch (cmd) {
   case "hook": await runHook(); break;
   case "cursor-hook": await runCursorHook(); break;
   case "agents": agentsList(); break;
-  case "install": install(args.find((a) => !a.startsWith("--")) ?? "auto", flag("--project")); break;
+  case "install":
+    install(args.find((a) => !a.startsWith("--")) ?? "auto", flag("--project"));
+    if (flag("--guard")) { setMode("guard"); console.log("✔ mode: guard   (warn→ask, block→deny)"); }
+    else if (!fs.existsSync(configPath())) console.log(dim("mode: observe (default — log only). Switch with:  agent-xray mode guard"));
+    break;
+  case "mode": modeCmd(args[0]); break;
   case "uninstall": uninstall(args.find((a) => !a.startsWith("--")) ?? "auto", flag("--project")); break;
   case "watch": watch(); break;
   case "dashboard": await dashboard(parsePort(args)); break;

@@ -7,6 +7,8 @@ export const xrayHome = () => process.env.AGENT_XRAY_HOME || path.join(os.homedi
 export const eventsPath = () => path.join(xrayHome(), "events.jsonl");
 export const errorsPath = () => path.join(xrayHome(), "errors.log");
 export const customRulesPath = () => path.join(xrayHome(), "rules.json");
+export const configPath = () => path.join(xrayHome(), "config.json");
+export const sealPath = () => path.join(xrayHome(), "seal.json");
 /** Replace the home directory with ~ for display. */
 export function shortPath(p) {
     const q = slashes(p);

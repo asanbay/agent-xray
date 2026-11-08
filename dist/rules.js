@@ -35,11 +35,19 @@ export const DEFAULT_RULES = {
         ],
     },
     // Writes that give an agent persistence or let it switch off its own guardrails.
+    // `block` covers agent-xray's own files and the hook installs — in guard mode
+    // an agent cannot edit its way around the filter ("я чайник" rules below).
     fileWrite: {
+        block: [
+            "~/.agent-xray/**",
+            "~/.claude/settings.json",
+            "~/.zcode/cli/config.json",
+            "~/.cursor/hooks.json",
+        ],
         warn: [
             "**/.bashrc", "**/.zshrc", "**/.zprofile", "**/.profile", "**/.bash_profile",
             "**/.git/hooks/**",
-            "**/.claude/settings.json", "**/.claude/settings.local.json",
+            "**/.claude/settings.local.json",
             "**/.github/workflows/**",
             "**/Library/LaunchAgents/**", "**/.config/autostart/**",
         ],
@@ -53,6 +61,9 @@ export const DEFAULT_RULES = {
             { pattern: R `\bchmod\s+(?:-R\s+)?777\s+\/(?:\s|$)`, reason: "world-writable root" },
             { pattern: R `\b(?:printenv|env)\b[^|;&\n]*\|\s*(?:curl|wget|nc|ncat)\b`, reason: "environment/secrets piped to the network" },
             { pattern: R `\bcurl\b[^|;&\n]*\s(?:-d|-F|-T|--data\S*|--form|--upload-file)\s*=?\s*@?\S*(?:\.env|id_rsa|id_ed25519|\.pem|credentials)\b`, reason: "uploads a secret file" },
+            { pattern: R `\bagent-xray\s+(?:uninstall|mode|seal)\b`, reason: "tries to switch off agent-xray — 🫖 я чайник" },
+            { pattern: R `cli\.js\s+(?:uninstall|mode|seal)\b`, reason: "tries to switch off agent-xray — 🫖 я чайник" },
+            { pattern: R `\bnpm\s+(?:uninstall|rm)\s+(?:-g\s+)?["']?agent-xray\b`, reason: "tries to remove agent-xray — 🫖 я чайник" },
         ],
         warn: [
             { pattern: R `(?:^|[;&|]\s*)(?:printenv|env)\s*(?:$|[|;&>])`, reason: "dumps environment variables" },
@@ -95,6 +106,7 @@ export function loadRules() {
         base.file.allow = add(base.file.allow, u?.file?.allow);
         base.file.block = add(base.file.block, u?.file?.block);
         base.file.warn = add(base.file.warn, u?.file?.warn);
+        base.fileWrite.block = add(base.fileWrite.block, u?.fileWrite?.block);
         base.fileWrite.warn = add(base.fileWrite.warn, u?.fileWrite?.warn);
         base.command.block = add(base.command.block, u?.command?.block);
         base.command.warn = add(base.command.warn, u?.command?.warn);
@@ -165,6 +177,9 @@ function matchFile(p, op, rules) {
     if (w)
         return { level: "warn", rule: w, reason: `sensitive path (${w})` };
     if (op === "write") {
+        const wb = test(rules.fileWrite.block);
+        if (wb)
+            return { level: "block", rule: wb, reason: `guardrail write (${wb}) — 🫖 я чайник` };
         const ww = test(rules.fileWrite.warn);
         if (ww)
             return { level: "warn", rule: ww, reason: `persistence/config write (${ww})` };

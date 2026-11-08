@@ -27,7 +27,7 @@ export interface CommandRule {
 
 export interface Rules {
   file: { allow: string[]; block: string[]; warn: string[] };
-  fileWrite: { warn: string[] };
+  fileWrite: { block: string[]; warn: string[] };
   command: { block: CommandRule[]; warn: CommandRule[] };
   network: { allow: string[]; warn: string[] };
 }

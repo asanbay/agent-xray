@@ -164,7 +164,7 @@ test("dashboard serves the page and the events API", async () => {
     try {
         appendEvent({ ts: Date.now(), session: "sessA", tool: "Read", kind: "file", op: "read", target: "/tmp/p/.env", level: "warn", reason: "sensitive path (**/.env)" });
         appendEvent({ ts: Date.now(), session: "sessA", tool: "Read", kind: "file", op: "read", target: `${HOME}/.ssh/id_rsa`, level: "block", reason: "sensitive path (**/.ssh/**)" });
-        const { url, server } = await startDashboard({ open: false });
+        const { url, server } = await startDashboard({ open: false, port: 0 });
         try {
             const page = await get(url + "/");
             assert.equal(page.status, 200);

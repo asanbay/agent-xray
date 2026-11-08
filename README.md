@@ -3,6 +3,7 @@
 **X-ray for AI coding agents.** See which files your agent reads, which commands it runs and where your data goes, in real time. Log-only by default; turn blocking on when you want it.
 
 [![CI](https://github.com/asanbay/agent-xray/actions/workflows/ci.yml/badge.svg)](https://github.com/asanbay/agent-xray/actions/workflows/ci.yml)
+[![Uptime](https://img.shields.io/github/actions/workflow/status/asanbay/agent-xray/uptime.yml?label=uptime&branch=main)](https://site-gcde.zai-ai.site/)
 ![node](https://img.shields.io/badge/node-18%2B-4ade80)
 ![deps](https://img.shields.io/badge/runtime%20deps-0-7aa2f7)
 [![license](https://img.shields.io/badge/license-MIT-8b98a9)](LICENSE)

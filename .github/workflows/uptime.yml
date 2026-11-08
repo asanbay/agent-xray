@@ -1,0 +1,54 @@
+name: Uptime
+
+on:
+  schedule:
+    - cron: "*/30 * * * *"
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+  issues: write
+
+env:
+  SITE: https://site-gcde.zai-ai.site/
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check the site
+        id: check
+        run: |
+          code=$(curl -s -o /tmp/body.html -w "%{http_code}" --max-time 20 "$SITE")
+          if [ "$code" = "200" ] && grep -q "agent-xray" /tmp/body.html; then
+            echo "up ✅ (HTTP $code)"
+          else
+            echo "down ❌ (HTTP $code)"
+            exit 1
+          fi
+
+      - name: File a downtime issue
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          count=$(gh issue list --search "site is down in:title" --state open --json number --jq length)
+          if [ "$count" = "0" ]; then
+            gh issue create --title "🚨 agent-xray site is down" \
+              --body "Uptime check failed at $(date -u '+%Y-%m-%d %H:%M UTC'). Site: $SITE — investigate the deployment."
+          fi
+
+      - name: Resolve the downtime issue
+        if: success()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          for n in $(gh issue list --search "site is down in:title" --state open --json number --jq '.[].number'); do
+            gh issue close "$n" --comment "Site recovered ✅ ($(date -u '+%Y-%m-%d %H:%M UTC'))"
+          done

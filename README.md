@@ -2,6 +2,15 @@
 
 **X-ray for AI coding agents.** See which files your agent reads, which commands it runs and where your data goes, in real time. Log-only by default; turn blocking on when you want it.
 
+[![CI](https://github.com/asanbay/agent-xray/actions/workflows/ci.yml/badge.svg)](https://github.com/asanbay/agent-xray/actions/workflows/ci.yml)
+![node](https://img.shields.io/badge/node-18%2B-4ade80)
+![deps](https://img.shields.io/badge/runtime%20deps-0-7aa2f7)
+[![license](https://img.shields.io/badge/license-MIT-8b98a9)](LICENSE)
+
+![agent-xray live demo](docs/demo.svg)
+
+**Why this exists.** GitGuardian found **24,008 secrets** leaked in agent configs on public GitHub — 2,117 still working. On one real MacBook, agents had left three servers running for **26–51 days**, listening on all network interfaces. Nobody noticed. agent-xray is the guard: it watches what agents actually do — files, commands, network — logs everything, and (opt-in) blocks the dangerous parts.
+
 ```
 18:26:16  ✔ ok     file:read  ~/projects/shop/src/index.ts
 18:26:19  ⚠ WARN   file:read  ~/projects/shop/.env            ← sensitive path (**/.env)

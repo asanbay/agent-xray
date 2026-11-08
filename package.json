@@ -1,0 +1,20 @@
+{
+  "name": "agent-xray",
+  "version": "0.1.0",
+  "description": "X-ray for AI coding agents: see which files they read, which commands they run and where data goes. Blocks the dangerous stuff.",
+  "type": "module",
+  "bin": { "agent-xray": "dist/cli.js" },
+  "files": ["dist", "README.md", "LICENSE"],
+  "scripts": {
+    "build": "tsc",
+    "test": "tsc && node --test dist/xray.test.js",
+    "prepublishOnly": "npm run build"
+  },
+  "engines": { "node": ">=18" },
+  "keywords": ["ai", "agent", "security", "claude-code", "mcp", "guardrails", "monitor"],
+  "license": "MIT",
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "typescript": "^5.4.0"
+  }
+}

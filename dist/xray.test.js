@@ -344,3 +344,47 @@ test("agents: registry is well-formed", () => {
         assert.equal(typeof a.installed, "boolean");
     }
 });
+// ---- sweep: classifiers and parsers ----
+import { classify, etimeHours, parsePsLine, parseLsofLine, ORPHAN_SERVER_RE, SYSTEM_DAEMON_RE } from "./sweep.js";
+test("sweep: classify knows agents and dev servers", () => {
+    assert.deepEqual(classify("node /x/.gemini/antigravity/scratch/SYNTHESIS_v2/node_modules/.bin/vite --host 0.0.0.0"), { agent: "Antigravity", kind: "dev-server" });
+    assert.deepEqual(classify("/Applications/Antigravity.app/Contents/MacOS/Antigravity"), { agent: "Antigravity", kind: "app" });
+    assert.deepEqual(classify("/Applications/Cursor.app/.../language_server --standalone"), { agent: "Cursor", kind: "service" });
+    assert.deepEqual(classify("/usr/sbin/cupsd"), { agent: "unknown", kind: "other" });
+    assert.deepEqual(classify("node /Users/x/agent-xray/dist/dashboard.js"), { agent: "agent-xray", kind: "other" });
+});
+test("sweep: etime parsing", () => {
+    assert.equal(etimeHours("30"), 0.5);
+    assert.equal(etimeHours("02:00:05"), 2 + 5 / 3600);
+    assert.equal(etimeHours("1-00:00:00"), 24);
+});
+test("sweep: ps line parsing", () => {
+    const p = parsePsLine("  4242     1   0.5  3-04:12:00 node /x/vite --host");
+    assert.ok(p);
+    assert.equal(p.pid, 4242);
+    assert.equal(p.etime, "3-04:12:00");
+    assert.equal(p.args, "node /x/vite --host");
+    assert.equal(parsePsLine("garbage line"), null);
+});
+test("sweep: lsof line parsing and exposure", () => {
+    const exposed = parseLsofLine("node 999 user 23u IPv4 0x0 0t0 TCP *:8787 (LISTEN)");
+    assert.ok(exposed);
+    assert.equal(exposed.exposed, true);
+    assert.equal(exposed.port, 8787);
+    const local = parseLsofLine("node 999 user 24u IPv4 0x0 0t0 TCP localhost:3000 (LISTEN)");
+    assert.ok(local);
+    assert.equal(local.exposed, false);
+    assert.equal(parseLsofLine("no tcp here"), null);
+});
+test("sweep: system daemons and orphans are recognised", () => {
+    // orphan-shaped real-world processes (space before the script name!)
+    assert.match("node server.js", ORPHAN_SERVER_RE);
+    assert.match("Python run_dashboard.py", ORPHAN_SERVER_RE);
+    assert.match("/usr/bin/python server.py", ORPHAN_SERVER_RE);
+    // ordinary commands must not be flagged
+    assert.doesNotMatch("tail -2 ~/.agent-xray/events.jsonl", ORPHAN_SERVER_RE);
+    assert.doesNotMatch("git status", ORPHAN_SERVER_RE);
+    // system daemons are excluded by path
+    assert.match("/usr/libexec/rapportd", SYSTEM_DAEMON_RE);
+    assert.doesNotMatch("/Users/x/.gemini/antigravity/scratch/server.py", SYSTEM_DAEMON_RE);
+});

@@ -7,6 +7,7 @@ import { demo } from "./demo.js";
 import { readEvents, followEvents } from "./store.js";
 import { startDashboard } from "./dashboard.js";
 import { buildReport, printReport } from "./report.js";
+import { sweep, printSweep } from "./sweep.js";
 import { bold, dim, formatEvent, sessionHeader } from "./render.js";
 import { customRulesPath, eventsPath, configPath } from "./paths.js";
 import { DEFAULT_RULES } from "./rules.js";
@@ -27,6 +28,8 @@ Usage:
   agent-xray dashboard [--port N]    web dashboard on localhost (default port 8787)
   agent-xray report [--all]          summary + risk grade for the last session (or everything)
   agent-xray rules                   show where to customise rules
+  agent-xray sweep [--json]          find AI-agent leftovers: orphan processes, open ports,
+                                     autostart entries, disk hogs (reports, never kills)
   agent-xray demo [--log]            simulated session; --log also writes it to the event log
 
 Modes:   observe = log everything, block nothing (default)   guard = warn→ask, block→deny
@@ -128,6 +131,12 @@ switch (cmd) {
   case "watch": watch(); break;
   case "dashboard": await dashboard(parsePort(args)); break;
   case "report": report(flag("--all")); break;
+  case "sweep": {
+    const findings = sweep();
+    if (flag("--json")) console.log(JSON.stringify(findings, null, 2));
+    else printSweep(findings);
+    break;
+  }
   case "rules": rules(); break;
   case "demo": await demo(flag("--log")); break;
   default: console.log(HELP); process.exit(cmd && cmd !== "help" && cmd !== "--help" ? 1 : 0);

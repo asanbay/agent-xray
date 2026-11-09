@@ -9,6 +9,7 @@ import { startDashboard } from "./dashboard.js";
 import { buildReport, printReport } from "./report.js";
 import { sweep, printSweep } from "./sweep.js";
 import { runAudit, printAudit, writeAuditReport } from "./audit.js";
+import { startProxy } from "./proxy.js";
 import { bold, dim, formatEvent, sessionHeader } from "./render.js";
 import { customRulesPath, eventsPath, configPath } from "./paths.js";
 import { DEFAULT_RULES } from "./rules.js";
@@ -31,6 +32,8 @@ Usage:
                                      autostart entries, disk hogs (reports, never kills)
   agent-xray audit                   full AI-safety audit: score, secrets in agent configs,
                                      coverage, parasites → HTML report in ~/.agent-xray/audit
+  agent-xray proxy [--port N]        localhost proxy: domain-level visibility for ANY agent
+                                     (run:  HTTPS_PROXY=http://127.0.0.1:8080 <your-agent>)
   agent-xray demo [--log]            simulated session; --log also writes it to the event log
 
 Modes:   observe = log everything, block nothing (default)   guard = warn→ask, block→deny
@@ -146,6 +149,13 @@ switch (cmd) {
     case "dashboard":
         await dashboard(parsePort(args));
         break;
+    case "proxy": {
+        const { url } = await startProxy({ port: parsePort(args) });
+        console.log(bold("agent-xray") + dim(`  proxy → ${url}   (Ctrl+C to exit)`));
+        console.log(dim("  point any agent at it:  HTTPS_PROXY=" + url + " HTTP_PROXY=" + url + " <agent>"));
+        console.log(dim(`  session appears in the log and dashboard as "proxy"`));
+        break;
+    }
     case "report":
         report(flag("--all"));
         break;

@@ -451,3 +451,88 @@ test("audit: coverage reads real agents registry", () => {
     for (const c of cov)
         assert.equal(typeof c.covered, "boolean");
 });
+// ---- proxy mode ----
+import net from "node:net";
+import { startProxy } from "./proxy.js";
+function proxyGet(proxyPort, targetUrl) {
+    return new Promise((resolve, reject) => {
+        const u = new URL(targetUrl);
+        const req = http.request({
+            host: "127.0.0.1", port: proxyPort, path: targetUrl,
+            headers: { host: u.host },
+        }, (r) => {
+            let b = "";
+            r.on("data", (c) => (b += c));
+            r.on("end", () => resolve({ status: r.statusCode ?? 0, body: b }));
+        });
+        req.on("error", reject);
+        req.end();
+    });
+}
+function proxyConnect(proxyPort, host, port) {
+    return new Promise((resolve) => {
+        const s = net.connect(proxyPort, "127.0.0.1", () => {
+            s.write(`CONNECT ${host}:${port} HTTP/1.1\r\nHost: ${host}:${port}\r\n\r\n`);
+        });
+        let first = "";
+        s.on("data", (d) => {
+            if (!first) {
+                first = d.toString().split("\r\n")[0];
+                s.destroy();
+                resolve(first);
+            }
+        });
+        s.on("error", () => { if (!first)
+            resolve(first || "socket error"); });
+        setTimeout(() => { s.destroy(); resolve(first || "timeout"); }, 3000);
+    });
+}
+test("proxy: forwards plain http and logs the host", async () => {
+    const h = fs.mkdtempSync(path.join(os.tmpdir(), "xray-home-"));
+    process.env.AGENT_XRAY_HOME = h;
+    const target = http.createServer((_q, r) => { r.writeHead(200); r.end("hello-through-proxy"); });
+    await new Promise((r) => target.listen(0, "127.0.0.1", r));
+    const tport = target.address().port;
+    const { server } = await startProxy({ port: 0 });
+    try {
+        const port = server.address().port;
+        const r = await proxyGet(port, `http://127.0.0.1:${tport}/hi`);
+        assert.equal(r.status, 200);
+        assert.equal(r.body, "hello-through-proxy");
+        const log = fs.readFileSync(path.join(h, "events.jsonl"), "utf8");
+        assert.ok(log.includes('"target":"127.0.0.1"'));
+    }
+    finally {
+        server.closeAllConnections?.();
+        server.close();
+        target.close();
+        delete process.env.AGENT_XRAY_HOME;
+    }
+});
+test("proxy: observe tunnels CONNECT, guard refuses warn-level hosts", async () => {
+    const h = fs.mkdtempSync(path.join(os.tmpdir(), "xray-home-"));
+    process.env.AGENT_XRAY_HOME = h;
+    // a local TCP target so the observe-tunnel test never touches the network
+    const target = net.createServer((s) => { s.end("tunnel-ok"); });
+    await new Promise((r) => target.listen(0, "127.0.0.1", r));
+    const tport = target.address().port;
+    const { server } = await startProxy({ port: 0 });
+    const port = server.address().port;
+    try {
+        const observe = await proxyConnect(port, "127.0.0.1", tport);
+        assert.match(observe, /^HTTP\/1.1 200/); // observe: tunnel established, host logged
+        // guard + a warn-level host → refused at CONNECT
+        fs.writeFileSync(path.join(h, "rules.json"), JSON.stringify({ network: { warn: ["forbidden.test"] } }));
+        setMode("guard");
+        const denied = await proxyConnect(port, "forbidden.test", 443);
+        assert.match(denied, /^HTTP\/1.1 403/);
+        const log = fs.readFileSync(path.join(h, "events.jsonl"), "utf8");
+        assert.ok(log.includes("forbidden.test"));
+    }
+    finally {
+        server.closeAllConnections?.();
+        server.close();
+        target.close();
+        delete process.env.AGENT_XRAY_HOME;
+    }
+});

